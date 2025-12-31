@@ -32,10 +32,7 @@ class LoraLoaderFromHF:
 
     CATEGORY = "HF_loaders"
 
-    def load_lora_from_hf(self, model, clip, repo_name, filename, api_token, strength_model, strength_clip):
-        if strength_model == 0 and strength_clip == 0:
-            return (model, clip)
-
+    def _get_lora(self, repo_name, filename, api_token):
         lora = None
         if self.loaded_lora is not None:
             if self.loaded_lora[0] == repo_name and self.loaded_lora[1] == filename:
@@ -46,7 +43,6 @@ class LoraLoaderFromHF:
                 del temp
 
         if lora is None:
-            
             # Load from HF
             token = api_token if api_token != "" else None
             cache_dirs = folder_paths.get_folder_paths(Folders.HF_CACHE_DIR)
@@ -60,9 +56,52 @@ class LoraLoaderFromHF:
 
             lora = comfy.utils.load_torch_file(lora_path, safe_load=True)
             self.loaded_lora = (repo_name, filename, lora)
+        return lora
+
+    def load_lora_from_hf(self, model, clip, repo_name, filename, api_token, strength_model, strength_clip):
+        if strength_model == 0 and strength_clip == 0:
+            return (model, clip)
+
+        lora = self._get_lora(repo_name, filename, api_token)
 
         model_lora, clip_lora = comfy.sd.load_lora_for_models(model, clip, lora, strength_model, strength_clip)
         return (model_lora, clip_lora)
+
+
+class LoraLoaderModelOnlyFromHF(LoraLoaderFromHF):
+    @classmethod
+    def INPUT_TYPES(s):
+        # We copy the parent inputs but remove CLIP and strength_clip
+        inputs = super().INPUT_TYPES()
+        
+        new_inputs = {
+            "required": {
+                "model": inputs["required"]["model"],
+                "repo_name": inputs["required"]["repo_name"],
+                "filename": inputs["required"]["filename"],
+                "api_token": inputs["required"]["api_token"],
+                "strength_model": inputs["required"]["strength_model"],
+            },
+            "optional": inputs.get("optional", {})
+        }
+        return new_inputs
+
+    RETURN_TYPES = ("MODEL",)
+    RETURN_NAMES = ("model",)
+    FUNCTION = "load_lora_model_only"
+    CATEGORY = "HF_loaders"
+
+    def load_lora_model_only(self, model, repo_name, filename, api_token, strength_model):
+        if strength_model == 0:
+            return (model,)
+            
+        # Reuse the parent's loading and caching logic
+        lora = self._get_lora(repo_name, filename, api_token)
+
+        # Apply LoRA only to model (pass None for clip)
+        model_lora, _ = comfy.sd.load_lora_for_models(model, None, lora, strength_model, 0)
+        
+        return (model_lora,)
 
 class ControlNetLoaderFromHF:
     def __init__(self):
